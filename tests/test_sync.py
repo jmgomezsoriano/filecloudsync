@@ -163,8 +163,8 @@ class MyTestCase(FileTestCase):
 
     def test_s3_monitor(self):
         tmp_dir = None
-        global TEST_FOLDER
-        TEST_FOLDER = 'test'
+        # global TEST_FOLDER
+        # TEST_FOLDER = 'test'
         try:
             logger.info(f'Creating a bucket {TEST_BUCKET} monitor...')
             # Create an initial synchronization
