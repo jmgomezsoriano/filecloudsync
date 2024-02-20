@@ -15,8 +15,6 @@ from filecloudsync import s3
 
 from mysutils.yaml import save_yaml, load_yaml
 
-from filecloudsync.s3.monitor import S3Monitor
-
 logger = getLogger(__name__)
 config_log('info')
 
@@ -163,7 +161,7 @@ class MyTestCase(FileTestCase):
             create_files()
             client = s3.connect()
             client.create_bucket(ACL='private', Bucket=TEST_BUCKET)
-            monitor = S3Monitor(TEST_BUCKET, TEST_FOLDER, 5, {'config.yml'})
+            monitor = s3.Monitor(TEST_BUCKET, TEST_FOLDER, 5, {'config.yml'})
             monitor.start()
             try:
                 time.sleep(1)
@@ -236,9 +234,7 @@ class MyTestCase(FileTestCase):
             create_files()
             client = s3.connect()
             client.create_bucket(ACL='private', Bucket=TEST_BUCKET)
-            monitor = S3Monitor(TEST_BUCKET, TEST_FOLDER, 5)
-            monitor.start()
-            try:
+            with s3.Monitor(TEST_BUCKET, TEST_FOLDER, 5):
                 time.sleep(1)
                 # Modifying the local file
                 save_yaml({'config': 'modify'}, join(TEST_FOLDER, 'config.yml'))
@@ -293,9 +289,6 @@ class MyTestCase(FileTestCase):
                 # Finishing
                 print('Waiting some seconds...')
                 time.sleep(5)
-            finally:
-                monitor.stop()
-                monitor.join()
         finally:
             clean_test_files(TEST_BUCKET, TEST_FOLDER)
         print('Finished')

@@ -5,7 +5,7 @@ from filecloudsync import s3
 from filecloudsync.s3.core import Location, Operation
 
 
-class S3Monitor(Thread):
+class Monitor(Thread):
     """ A monitor to synchronize a bucket with a folder. """
 
     def __init__(self, bucket: str, folder: str, delay: int = 60, files: Set[str] = None, **kwargs) -> None:
