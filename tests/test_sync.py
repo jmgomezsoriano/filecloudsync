@@ -115,21 +115,17 @@ class MyTestCase(FileTestCase):
                 # Create a modification in local and synchronize
                 save_yaml({'new_model': 'RoBERTa'}, join(TEST_FOLDER, 'config.yml'))
                 s3.sync(client, TEST_BUCKET, TEST_FOLDER)
-                client.download_file(TEST_BUCKET, 'config.yml', join(tmp_dir, 'config.yml'))
-                self.assertDictEqual(load_yaml(join(tmp_dir, 'config.yml')), {'new_model': 'RoBERTa'})
+                self.assertDictEqual(s3.read_yaml(client, TEST_BUCKET, 'config.yml'), {'new_model': 'RoBERTa'})
                 # Create a modification in the bucket and synchronize
-                save_yaml({'new_model': 'LLaMa'}, join(tmp_dir, 'config.yml'))
-                client.upload_file(join(tmp_dir, 'config.yml'), TEST_BUCKET, 'config.yml')
+                s3.write_yaml({'new_model': 'LLaMa'}, client, TEST_BUCKET, 'config.yml')
                 s3.sync(client, TEST_BUCKET, TEST_FOLDER)
                 self.assertDictEqual(load_yaml(join(TEST_FOLDER, 'config.yml')), {'new_model': 'LLaMa'})
                 # Add a file in local and synchronize
                 save_json({'tokens': [1, 2, 3]}, join(TEST_FOLDER, 'data', 'tokenizer.json'))
                 s3.sync(client, TEST_BUCKET, TEST_FOLDER)
-                client.download_file(TEST_BUCKET, 'data/tokenizer.json', join(tmp_dir, 'data', 'tokenizer.json'))
-                self.assertDictEqual(load_json(join(tmp_dir, 'data', 'tokenizer.json')), {'tokens': [1, 2, 3]})
+                self.assertDictEqual(s3.read_json(client, TEST_BUCKET, 'data/tokenizer.json'), {'tokens': [1, 2, 3]})
                 # Add a file in the bucket and synchronize
-                save_json({'vectors': [(1, 2, 3), (4, 5, 6)]}, join(tmp_dir, 'data', 'model.json.gz'))
-                client.upload_file(join(tmp_dir, 'data', 'model.json.gz'), TEST_BUCKET, 'data/model.json.gz')
+                s3.write_json({'vectors': [(1, 2, 3), (4, 5, 6)]}, client, TEST_BUCKET, 'data/model.json.gz')
                 s3.sync(client, TEST_BUCKET, TEST_FOLDER)
                 self.assertDictEqual(
                     load_json(join(TEST_FOLDER, 'data', 'model.json.gz')), {'vectors': [[1, 2, 3], [4, 5, 6]]}
@@ -146,8 +142,7 @@ class MyTestCase(FileTestCase):
                 self.assertNotExists(join(TEST_FOLDER, 'data', 'model.json.gz'))
                 # Delete in local and modify in the bucket
                 os.remove(join(TEST_FOLDER, 'config.yml'))
-                save_yaml({'Operation': 'deleted_in_local'}, join(tmp_dir, 'config.yml'))
-                client.upload_file(join(tmp_dir, 'config.yml'), TEST_BUCKET, 'config.yml')
+                s3.write_yaml({'Operation': 'deleted_in_local'}, client, TEST_BUCKET, 'config.yml')
                 s3.sync(client, TEST_BUCKET, TEST_FOLDER)
                 self.assertDictEqual(load_yaml(join(TEST_FOLDER, 'config.yml')), {'Operation': 'deleted_in_local'})
                 # Delete in the bucket and modify in local
@@ -161,10 +156,9 @@ class MyTestCase(FileTestCase):
         finally:
             clean_test_files(TEST_BUCKET, TEST_FOLDER, tmp_dir)
 
-    def test_s3_monitor(self):
-        tmp_dir = None
+    def test_s3_monitor_with_files(self):
         try:
-            logger.info(f'Creating a bucket {TEST_BUCKET} monitor...')
+            logger.info(f'Creating a bucket {TEST_BUCKET} monitor with a list of files...')
             # Create an initial synchronization
             create_files()
             client = s3.connect()
@@ -172,29 +166,139 @@ class MyTestCase(FileTestCase):
             monitor = S3Monitor(TEST_BUCKET, TEST_FOLDER, 5, {'config.yml'})
             monitor.start()
             try:
-                with removable_tmp(True) as tmp_dir:
-                    time.sleep(1)
-                    # Modifying the local file
-                    save_yaml({'config': 'modify'}, join(TEST_FOLDER, 'config.yml'))
-                    time.sleep(2)
-                    client.download_file(TEST_BUCKET, 'config.yml', join(tmp_dir, 'config.yml'))
-                    self.assertDictEqual(load_yaml(join(tmp_dir, 'config.yml')), {'config': 'modify'})
-                    # Deleting the local file
-                    os.remove(join(TEST_FOLDER, 'config.yml'))
-                    time.sleep(1)
-                    with self.assertRaises(ClientError):
-                        client.head_object(Bucket=TEST_BUCKET, Key='config.yml')
-                    save_yaml({'config': 'modify 2'}, join(TEST_FOLDER, 'config.yml'))
-                    time.sleep(3)
-                    client.download_file(TEST_BUCKET, 'config.yml', join(tmp_dir, 'config.yml'))
-                    self.assertDictEqual(load_yaml(join(tmp_dir, 'config.yml')), {'config': 'modify 2'})
-                    print('Waiting 60 seconds...')
-                    time.sleep(60)
+                time.sleep(1)
+                # Modifying the local file
+                save_yaml({'config': 'modify'}, join(TEST_FOLDER, 'config.yml'))
+                time.sleep(6)
+                self.assertDictEqual(s3.read_yaml(client, TEST_BUCKET, 'config.yml'), {'config': 'modify'})
+                # Deleting the local file
+                os.remove(join(TEST_FOLDER, 'config.yml'))
+                time.sleep(6)
+                with self.assertRaises(ClientError):
+                    client.head_object(Bucket=TEST_BUCKET, Key='config.yml')
+                # Creating a local file
+                save_yaml({'config': 'modify 2'}, join(TEST_FOLDER, 'config.yml'))
+                time.sleep(6)
+                self.assertDictEqual(s3.read_yaml(client, TEST_BUCKET, 'config.yml'), {'config': 'modify 2'})
+                # Modifying bucket file
+                s3.write_json({'config': 'modify 3'}, client, TEST_BUCKET, 'config.yml')
+                time.sleep(6)
+                self.assertDictEqual(load_yaml(join(TEST_FOLDER, 'config.yml')), {'config': 'modify 3'})
+                # Deleting bucket file
+                client.delete_object(Bucket=TEST_BUCKET, Key='config.yml')
+                time.sleep(6)
+                self.assertNotExists(join(TEST_FOLDER, 'config.yml'))
+                # Creating bucket file
+                s3.write_yaml({'config': 'modify 4'}, client, TEST_BUCKET, 'config.yml')
+                time.sleep(6)
+                self.assertDictEqual(load_yaml(join(TEST_FOLDER, 'config.yml')), {'config': 'modify 4'})
+                # Creating a not monitored local file
+                save_yaml({'config': 'modify 5'}, join(TEST_FOLDER, 'config2.yml'))
+                time.sleep(6)
+                with self.assertRaises(ClientError):
+                    client.head_object(Bucket=TEST_BUCKET, Key='config2.yml')
+                # Modifying a not monitored local file
+                save_yaml({'config': 'modify 6'}, join(TEST_FOLDER, 'config2.yml'))
+                time.sleep(6)
+                with self.assertRaises(ClientError):
+                    client.head_object(Bucket=TEST_BUCKET, Key='config2.yml')
+                # Deleting a not monitored local file
+                os.remove(join(TEST_FOLDER, 'config2.yml'))
+                time.sleep(6)
+                with self.assertRaises(ClientError):
+                    client.head_object(Bucket=TEST_BUCKET, Key='config2.yml')
+                # Creating a not monitored bucket file
+                s3.write_yaml({'config': 'modify 7'}, client, TEST_BUCKET, 'config2.yml')
+                time.sleep(6)
+                self.assertNotExists(join(TEST_FOLDER, 'config2.yml'))
+                # Modifying a not monitored bucket file
+                s3.write_yaml({'config': 'modify 8'}, client, TEST_BUCKET, 'config2.yml')
+                time.sleep(6)
+                self.assertNotExists(join(TEST_FOLDER, 'config2.yml'))
+                # Deleting a not monitored bucket file
+                client.delete_object(Bucket=TEST_BUCKET, Key='config2.yml')
+                time.sleep(6)
+                self.assertNotExists(join(TEST_FOLDER, 'config2.yml'))
+                # Finishing
+                print('Waiting some seconds...')
+                time.sleep(5)
             finally:
                 monitor.stop()
                 monitor.join()
         finally:
-            clean_test_files(TEST_BUCKET, TEST_FOLDER, tmp_dir)
+            clean_test_files(TEST_BUCKET, TEST_FOLDER)
+        print('Finished')
+
+    def test_s3_monitor(self):
+        try:
+            logger.info(f'Creating a bucket {TEST_BUCKET} monitor without a list of files...')
+            # Create an initial synchronization
+            create_files()
+            client = s3.connect()
+            client.create_bucket(ACL='private', Bucket=TEST_BUCKET)
+            monitor = S3Monitor(TEST_BUCKET, TEST_FOLDER, 5)
+            monitor.start()
+            try:
+                time.sleep(1)
+                # Modifying the local file
+                save_yaml({'config': 'modify'}, join(TEST_FOLDER, 'config.yml'))
+                time.sleep(6)
+                self.assertDictEqual(s3.read_yaml(client, TEST_BUCKET, 'config.yml'), {'config': 'modify'})
+                # Deleting the local file
+                os.remove(join(TEST_FOLDER, 'config.yml'))
+                time.sleep(6)
+                with self.assertRaises(ClientError):
+                    client.head_object(Bucket=TEST_BUCKET, Key='config.yml')
+                # Creating a local file
+                save_yaml({'config': 'modify 2'}, join(TEST_FOLDER, 'config.yml'))
+                time.sleep(6)
+                self.assertDictEqual(s3.read_yaml(client, TEST_BUCKET, 'config.yml'), {'config': 'modify 2'})
+                # Modifying bucket file
+                s3.write_yaml({'config': 'modify 3'}, client, TEST_BUCKET, 'config.yml')
+                time.sleep(6)
+                self.assertDictEqual(load_yaml(join(TEST_FOLDER, 'config.yml')), {'config': 'modify 3'})
+                # Deleting bucket file
+                client.delete_object(Bucket=TEST_BUCKET, Key='config.yml')
+                time.sleep(6)
+                self.assertNotExists(join(TEST_FOLDER, 'config.yml'))
+                # Creating bucket file
+                s3.write_yaml({'config': 'modify 4'}, client, TEST_BUCKET, 'config.yml')
+                time.sleep(6)
+                self.assertDictEqual(load_yaml(join(TEST_FOLDER, 'config.yml')), {'config': 'modify 4'})
+                # Creating a previously not monitored local file
+                save_yaml({'config': 'modify 5'}, join(TEST_FOLDER, 'config2.yml'))
+                time.sleep(6)
+                self.assertDictEqual(s3.read_yaml(client, TEST_BUCKET, 'config2.yml'), {'config': 'modify 5'})
+                # Modifying a previously not monitored local file
+                save_yaml({'config': 'modify 6'}, join(TEST_FOLDER, 'config2.yml'))
+                time.sleep(6)
+                self.assertDictEqual(s3.read_yaml(client, TEST_BUCKET, 'config2.yml'), {'config': 'modify 6'})
+                # Deleting a not monitored local file
+                os.remove(join(TEST_FOLDER, 'config2.yml'))
+                time.sleep(6)
+                with self.assertRaises(ClientError):
+                    client.head_object(Bucket=TEST_BUCKET, Key='config2.yml')
+                # Creating a not monitored bucket file
+                s3.write_yaml({'config': 'modify 7'}, client, TEST_BUCKET, 'config2.yml')
+                time.sleep(6)
+                self.assertDictEqual(load_yaml(join(TEST_FOLDER, 'config2.yml')), {'config': 'modify 7'})
+                # Modifying a not monitored bucket file
+                s3.write_yaml({'config': 'modify 8'}, client, TEST_BUCKET, 'config2.yml')
+                time.sleep(6)
+                self.assertDictEqual(load_yaml(join(TEST_FOLDER, 'config2.yml')), {'config': 'modify 8'})
+                # Deleting a not monitored bucket file
+                client.delete_object(Bucket=TEST_BUCKET, Key='config2.yml')
+                time.sleep(6)
+                self.assertNotExists(join(TEST_FOLDER, 'config2.yml'))
+                # Finishing
+                print('Waiting some seconds...')
+                time.sleep(5)
+            finally:
+                monitor.stop()
+                monitor.join()
+        finally:
+            clean_test_files(TEST_BUCKET, TEST_FOLDER)
+        print('Finished')
 
     def test_sync_partial_files(self):
         """ Test if the bucket synchronizes with an empty local folder """

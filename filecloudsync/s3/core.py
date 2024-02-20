@@ -2,13 +2,14 @@ import os
 
 import boto3
 import hashlib
-from typing import Dict, Tuple, Set
+from typing import Dict, Tuple, Set, Any
 from botocore.client import BaseClient
 from os import environ, makedirs, utime
-from os.path import expanduser, join, exists, dirname
+from os.path import expanduser, join, exists, dirname, splitext
 
 from botocore.exceptions import ClientError
-from mysutils.yaml import load_yaml
+from mysutils.tmp import removable_tmp
+from mysutils.yaml import load_yaml, save_yaml
 from mysutils.file import save_json, load_json
 from mysutils.hash import file_md5
 from dateutil.tz import tzlocal
@@ -367,7 +368,7 @@ def apply_local_diffs(
             _sync_local_remove(client, bucket, key, folder, bucket_files, local_files)
 
 
-def sync(client: BaseClient, bucket: str, folder: str, files: Set[str] = None) -> None:
+def sync(client: BaseClient, bucket: str, folder: str, files: Set[str] = None) -> [Tuple[str, Operation, Location]]:
     """ Synchronize a S3 bucket and a folder.
 
     :param client: The S3 client.
@@ -384,6 +385,8 @@ def sync(client: BaseClient, bucket: str, folder: str, files: Set[str] = None) -
     except TagsNotMatchError as e:
         raise TagsNotMatchError(f'Tags do not match between the bucket "{bucket}" and the folder "{folder}": {str(e)}')
     _save_sync_status(client.meta.endpoint_url, bucket, folder, bucket_files, local_files)
+    return [(key, operation, Location.BUCKET) for key, operation in bucket_diff.items()] + \
+        [(key, operation, Location.LOCAL) for key, operation in local_diff.items()]
 
 
 def check_changes(
@@ -471,3 +474,57 @@ def get_bucket_keys(client: BaseClient, bucket: str, files: Set[str] = None) -> 
         o['Key']: (o['LastModified'].astimezone(tzlocal()).timestamp(), o['ETag'].replace('"', ''))
         for o in objs if not files or o['Key'] in files
     }
+
+
+def read_json(client: BaseClient, bucket: str, key: str, encoding: str = None, default: Any = None) -> Any:
+    """ Load a json file from a bucket and return an object with its data.
+    :param client: The s3 client.
+    :param bucket: The s3 bucket.
+    :param key: The json file in the bucket.
+    :param encoding: The file encoding. By default, the system default encoding is used.
+    :param default: The default value if the file does not exist.
+    :return: An object with the json data.
+    """
+    with removable_tmp(suffix=splitext(key)[1]) as tmp_file:
+        client.download_file(bucket, key, tmp_file)
+        return load_json(tmp_file, encoding, default)
+
+
+def write_json(obj: Any, client: BaseClient, bucket: str, key: str, encoding: str = None) -> None:
+    """ Save an object in a json bucket file
+    :param obj: The object to save
+    :param client: The s3 client
+    :param bucket: The s3 bucket
+    :param key: The json file in the bucket
+    :param encoding: The file encoding. By default, the system default encoding is used
+    """
+    with removable_tmp(suffix=splitext(key)[1]) as tmp_file:
+        save_json(obj, tmp_file, True, encoding)
+        client.upload_file(tmp_file, bucket, key)
+
+
+def read_yaml(client: BaseClient, bucket: str, key: str, encoding: str = None, default: Any = None) -> Any:
+    """ Load a Yaml file from a bucket and return an object with its data.
+    :param client: The s3 client.
+    :param bucket: The s3 bucket.
+    :param key: The Yaml file in the bucket.
+    :param encoding: The file encoding. By default, the system default encoding is used.
+    :param default: The default value if the file does not exist.
+    :return: An object with the Yaml data.
+    """
+    with removable_tmp(suffix=splitext(key)[1]) as tmp_file:
+        client.download_file(bucket, key, tmp_file)
+        return load_yaml(tmp_file, encoding, default)
+
+
+def write_yaml(obj: Any, client: BaseClient, bucket: str, key: str, encoding: str = None) -> None:
+    """ Save an object in a Yaml bucket file
+    :param obj: The object to save
+    :param client: The s3 client
+    :param bucket: The s3 bucket
+    :param key: The Yaml file in the bucket
+    :param encoding: The file encoding. By default, the system default encoding is used
+    """
+    with removable_tmp(suffix=splitext(key)[1]) as tmp_file:
+        save_yaml(obj, tmp_file, True, encoding)
+        client.upload_file(tmp_file, bucket, key)
