@@ -1,4 +1,4 @@
-from threading import Thread, Event, Lock
+from threading import Thread, Event
 from typing import Set, Callable
 
 from filecloudsync import s3
@@ -9,7 +9,7 @@ class S3Monitor(Thread):
     """ A monitor to synchronize a bucket with a folder. """
 
     def __init__(self, bucket: str, folder: str, delay: int = 60, files: Set[str] = None, **kwargs) -> None:
-        """ Create a monitor of a bucket or some files of that bucketm and synchronize them with a given folder.
+        """ Create a monitor of a bucket or some files of that bucket and synchronize them with a given folder
 
         .. code-block:: python
             x = 1 # Testing embedded code
@@ -17,11 +17,10 @@ class S3Monitor(Thread):
 
         :param bucket: The bucket name.
         :param folder: The folder path.
-        :param delay: The delay between buckets check.
-            This does not apply in local folder that detects changes immediately.
+        :param delay: The delay between bucket checking
         :param files: A list of keys to watch in Unix file path format.
             If none is given, then check all the bucket/folder files.
-        :param kwargs: The s3 connection credentials.
+        :param kwargs: The s3 connection credentials
         """
         super().__init__()
         self._client = s3.connect(**kwargs)
@@ -34,7 +33,7 @@ class S3Monitor(Thread):
         self._hooks = set()
 
     def _trigger(self, file: str, operation: Operation, location: Location) -> None:
-        """ Trigger this event to the hooks.
+        """ Trigger this event to the hooks
         :param file: The file with the event
         :param operation: The operation realized in that file
         :param location: Where the file is, on the local folder or on the bucket
@@ -51,14 +50,13 @@ class S3Monitor(Thread):
             self._interrupt_event.wait(timeout=self.delay)
 
     def add(self, handle: Callable[[str, Operation, Location], None]) -> None:
-        """ Add a event handle
+        """ Add an event handle
         :param handle: The handle function to add
         """
         self._hooks.add(handle)
 
     def remove(self, handle: Callable[[str, Operation, Location], None]) -> None:
-        """ Remove a event handle
-
+        """ Remove an event handle
         :param handle: The handle function to remove
         """
         self._hooks.remove(handle)

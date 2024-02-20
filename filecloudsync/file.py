@@ -8,7 +8,7 @@ from mysutils.hash import file_md5
 def get_folder_files(folder: str, files: Set[str] = None) -> Dict[str, Tuple[float, str]]:
     """ Get the timestamp and content hash of the files in a folder.
 
-    :param folder: The folder where get the files from
+    :param folder: The folder where gets the files from
     :param files: A list of keys to watch in Unix file path format.
             If none is given, then it returns all the folder files.
     :return: The file paths relative to folder with their timestamp and hash.
