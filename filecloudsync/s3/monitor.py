@@ -44,10 +44,13 @@ class Monitor(Thread):
     def run(self) -> None:
         """ Execute the monitor """
         s3.sync(self._client, self.bucket, self.folder, self.files)
-        while not self._stop_event:
-            for key, operation, location in s3.sync(self._client, self.bucket, self.folder, self.files):
-                self._trigger(key, operation, location)
-            self._interrupt_event.wait(timeout=self.delay)
+        try:
+            while not self._stop_event:
+                for key, operation, location in s3.sync(self._client, self.bucket, self.folder, self.files):
+                    self._trigger(key, operation, location)
+                self._interrupt_event.wait(timeout=self.delay)
+        finally:
+            s3.sync(self._client, self.bucket, self.folder, self.files)
 
     def add(self, handle: Callable[[str, Operation, Location], None]) -> None:
         """ Add an event handle
