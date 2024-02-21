@@ -2,7 +2,7 @@ import os
 
 import boto3
 import hashlib
-from typing import Dict, Tuple, Set, Any
+from typing import Dict, Tuple, Set, Any, List
 from botocore.client import BaseClient
 from os import environ, makedirs, utime
 from os.path import expanduser, join, exists, dirname, splitext, realpath
@@ -543,7 +543,7 @@ def apply_local_changes(
             _sync_bucket_remove(client, bucket, key, folder, bucket_files, local_files)
 
 
-def sync(client: BaseClient, bucket: str, folder: str, files: Set[str] = None) -> [Tuple[str, Operation, Location]]:
+def sync(client: BaseClient, bucket: str, folder: str, files: Set[str] = None) -> List[Tuple[str, Operation, Location]]:
     """ Synchronize a S3 bucket and a folder.
 
     :param client: The S3 client.

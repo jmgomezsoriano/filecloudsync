@@ -4,16 +4,18 @@ import unittest
 from os import makedirs
 from os.path import basename, join, exists
 from shutil import rmtree
-from tempfile import mkdtemp
+from tempfile import mkdtemp, mktemp
 from mysutils.file import write_file, save_json, read_file, load_json
 from mysutils.tmp import removable_tmp
 from mysutils.unittest import FileTestCase
 from logging import getLogger
 from mysutils.logging import config_log
 from botocore.exceptions import ClientError
-from filecloudsync import s3
-
+from functools import partial
 from mysutils.yaml import save_yaml, load_yaml
+
+from filecloudsync import s3
+from filecloudsync.s3 import Operation, Location
 
 logger = getLogger(__name__)
 config_log('info')
@@ -44,6 +46,10 @@ def clean_test_files(bucket, *folders):
         client.delete_bucket(Bucket=TEST_BUCKET)
     except client.exceptions.NoSuchBucket:
         logger.warning("The bucket does not exist, nothing to remove")
+
+
+def save_log_handle(filename, key: str, operation: Operation, location: Location) -> None:
+    write_file(filename, f'The key or file {key} has been {operation.value} in {location.name}')
 
 
 class MyTestCase(FileTestCase):
@@ -228,63 +234,77 @@ class MyTestCase(FileTestCase):
         print('Finished')
 
     def test_s3_monitor(self):
+        tmp_file = mktemp()
         try:
             logger.info(f'Creating a bucket {TEST_BUCKET} monitor without a list of files...')
             # Create an initial synchronization
             create_files()
             client = s3.connect()
             client.create_bucket(ACL='private', Bucket=TEST_BUCKET)
-            with s3.Monitor(TEST_BUCKET, TEST_FOLDER, 5):
+            with s3.Monitor(TEST_BUCKET, TEST_FOLDER, 5) as monitor:
+                monitor.add(partial(save_log_handle, tmp_file))
                 time.sleep(1)
                 # Modifying the local file
                 save_yaml({'config': 'modify'}, join(TEST_FOLDER, 'config.yml'))
                 time.sleep(6)
+                self.assertListEqual(read_file(tmp_file), ['The key or file config.yml has been modified in LOCAL'])
                 self.assertDictEqual(s3.read_yaml(client, TEST_BUCKET, 'config.yml'), {'config': 'modify'})
                 # Deleting the local file
                 os.remove(join(TEST_FOLDER, 'config.yml'))
                 time.sleep(6)
+                self.assertListEqual(read_file(tmp_file), ['The key or file config.yml has been deleted in LOCAL'])
                 with self.assertRaises(ClientError):
                     client.head_object(Bucket=TEST_BUCKET, Key='config.yml')
                 # Creating a local file
                 save_yaml({'config': 'modify 2'}, join(TEST_FOLDER, 'config.yml'))
                 time.sleep(6)
+                self.assertListEqual(read_file(tmp_file), ['The key or file config.yml has been added in LOCAL'])
                 self.assertDictEqual(s3.read_yaml(client, TEST_BUCKET, 'config.yml'), {'config': 'modify 2'})
                 # Modifying bucket file
                 s3.write_yaml({'config': 'modify 3'}, client, TEST_BUCKET, 'config.yml')
                 time.sleep(6)
+                self.assertListEqual(read_file(tmp_file), ['The key or file config.yml has been modified in BUCKET'])
                 self.assertDictEqual(load_yaml(join(TEST_FOLDER, 'config.yml')), {'config': 'modify 3'})
                 # Deleting bucket file
                 client.delete_object(Bucket=TEST_BUCKET, Key='config.yml')
                 time.sleep(6)
+                self.assertListEqual(read_file(tmp_file), ['The key or file config.yml has been deleted in BUCKET'])
                 self.assertNotExists(join(TEST_FOLDER, 'config.yml'))
                 # Creating bucket file
                 s3.write_yaml({'config': 'modify 4'}, client, TEST_BUCKET, 'config.yml')
                 time.sleep(6)
+                self.assertListEqual(read_file(tmp_file), ['The key or file config.yml has been added in BUCKET'])
                 self.assertDictEqual(load_yaml(join(TEST_FOLDER, 'config.yml')), {'config': 'modify 4'})
                 # Creating a previously not monitored local file
                 save_yaml({'config': 'modify 5'}, join(TEST_FOLDER, 'config2.yml'))
                 time.sleep(6)
+                self.assertListEqual(read_file(tmp_file), ['The key or file config2.yml has been modified in LOCAL'])
                 self.assertDictEqual(s3.read_yaml(client, TEST_BUCKET, 'config2.yml'), {'config': 'modify 5'})
                 # Modifying a previously not monitored local file
                 save_yaml({'config': 'modify 6'}, join(TEST_FOLDER, 'config2.yml'))
                 time.sleep(6)
+                self.assertListEqual(read_file(tmp_file), ['The key or file config2.yml has been modified in LOCAL'])
                 self.assertDictEqual(s3.read_yaml(client, TEST_BUCKET, 'config2.yml'), {'config': 'modify 6'})
                 # Deleting a not monitored local file
                 os.remove(join(TEST_FOLDER, 'config2.yml'))
                 time.sleep(6)
+                self.assertListEqual(read_file(tmp_file), ['The key or file config2.yml has been deleted in LOCAL'])
                 with self.assertRaises(ClientError):
                     client.head_object(Bucket=TEST_BUCKET, Key='config2.yml')
                 # Creating a not monitored bucket file
                 s3.write_yaml({'config': 'modify 7'}, client, TEST_BUCKET, 'config2.yml')
                 time.sleep(6)
+                self.assertListEqual(read_file(tmp_file), ['The key or file config2.yml has been added in BUCKET'])
                 self.assertDictEqual(load_yaml(join(TEST_FOLDER, 'config2.yml')), {'config': 'modify 7'})
                 # Modifying a not monitored bucket file
                 s3.write_yaml({'config': 'modify 8'}, client, TEST_BUCKET, 'config2.yml')
                 time.sleep(6)
+                self.assertListEqual(read_file(tmp_file), ['The key or file config2.yml has been modified in BUCKET'])
                 self.assertDictEqual(load_yaml(join(TEST_FOLDER, 'config2.yml')), {'config': 'modify 8'})
                 # Deleting a not monitored bucket file
                 client.delete_object(Bucket=TEST_BUCKET, Key='config2.yml')
                 time.sleep(6)
+                self.assertListEqual(read_file(tmp_file), ['The key or file config2.yml has been deleted in BUCKET'])
                 self.assertNotExists(join(TEST_FOLDER, 'config2.yml'))
                 # Finishing
                 print('Waiting some seconds...')

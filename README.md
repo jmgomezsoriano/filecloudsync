@@ -25,7 +25,7 @@ s3.connect(ws_access_key_id=ACCESS_ID, aws_secret_access_key=SECRET_KEY, endpoin
 
 Synchronizes a bucket and a folder and applied the last changes of the file
 
-````python
+```python
 from filecloudsync import s3
 
 client = s3.connect()
@@ -41,7 +41,18 @@ with open(join(FOLDER, 'test.txt')) as file:
 
 # Upload the new local file automatically and download the changes from the bucket if there are any
 s3.sync(client, BUCKET_NAME, FOLDER)
-````
+
+# It also possible to get the made changes
+changes = s3.sync(client, BUCKET_NAME, FOLDER)
+# Print a list of (key, Operation, Location)
+print(changes)
+# Example of output:
+# [
+#   ('config.yml', <Operation.ADDED: 'added'>, <Location.BUCKET: 'keys'>), 
+#   ('data/data.json', <Operation.MODIFIED: 'modified'>, <Location.LOCAL: 'files'>),
+#   ('test.txt', <Operation.DELETED: 'deleted'>, <Location.BUCKET: 'keys'>)
+# ] 
+```
 
 ## Monitor
 
@@ -66,10 +77,29 @@ with s3.Monitor(BUCKET, FOLDER):
     # Do something
     sleep(120)  # Synchronizes 2 times
 
-# Select which files should be sincronized
+# Select which files should be synchronized
 with s3.Monitor(BUCKET, FOLDER, files={'config.yml', 'data/data.csv'}):
     # Do something
     sleep(120)  # Synchronizes 2 times
+```
+
+Moreover, you can add handles to detect when the monitor makes the changes. For example:
+```python
+from filecloudsync import s3
+from time import sleep
+
+# You can add handles to the monitor
+def my_handle(key: str, operation: s3.Operation, location: s3.Location):
+    # Print the key or the file (in key format) if the key has been ADDED, MODIFIED or DELETED,
+    # and if the key has been changed in LOCAL or in the BUCKET
+    print(f'The key or file {key} has been {operation.value} in {location.name}')
+
+    
+with s3.Monitor(BUCKET, FOLDER) as monitor:
+    # Each time a key or file is changed (modified, added or deleted) the function my_handle will be called
+    monitor.add(my_handle)
+    # Do something
+    sleep(120)
 ```
 
 ## Other utilities
