@@ -32,6 +32,7 @@ class Monitor(Thread):
         self._interrupt_event = Event()
         self._on_change_hooks = set()
         self._on_finish_hooks = set()
+        s3.sync(self._client, self.bucket, self.folder, self.files)
 
     def _trigger_on_change(self, file: str, operation: Operation, location: Location) -> None:
         """ Trigger an event to the on change hooks when a file is changed
@@ -53,7 +54,6 @@ class Monitor(Thread):
 
     def run(self) -> None:
         """ Execute the monitor """
-        s3.sync(self._client, self.bucket, self.folder, self.files)
         try:
             while not self._stop_event:
                 for key, operation, location in s3.sync(self._client, self.bucket, self.folder, self.files):
