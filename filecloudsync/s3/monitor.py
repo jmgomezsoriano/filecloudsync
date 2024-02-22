@@ -1,5 +1,5 @@
 from threading import Thread, Event
-from typing import Set, Callable
+from typing import Set, Callable, List, Tuple
 
 from filecloudsync import s3
 from filecloudsync.s3.core import Location, Operation
@@ -30,16 +30,26 @@ class Monitor(Thread):
         self.files = files
         self._stop_event = False
         self._interrupt_event = Event()
-        self._hooks = set()
+        self._on_change_hooks = set()
+        self._on_finish_hooks = set()
 
-    def _trigger(self, file: str, operation: Operation, location: Location) -> None:
-        """ Trigger this event to the hooks
+    def _trigger_on_change(self, file: str, operation: Operation, location: Location) -> None:
+        """ Trigger an event to the on change hooks when a file is changed
         :param file: The file with the event
         :param operation: The operation realized in that file
         :param location: Where the file is, on the local folder or on the bucket
         """
-        for hook in self._hooks:
+        for hook in self._on_change_hooks:
             hook(file, operation, location)
+
+    def _trigger_on_finish(self, changes: List[Tuple[str, Operation, Location]]) -> None:
+        """ Trigger when the monitor finishes
+        :param changes: The list of detected last changes if any.
+            Each list element contains the bucket key, the operation (MODIFIED, ADDED or DELETED),
+            and the location (LOCAL or BUCKET)
+        """
+        for hook in self._on_finish_hooks:
+            hook(changes)
 
     def run(self) -> None:
         """ Execute the monitor """
@@ -47,22 +57,34 @@ class Monitor(Thread):
         try:
             while not self._stop_event:
                 for key, operation, location in s3.sync(self._client, self.bucket, self.folder, self.files):
-                    self._trigger(key, operation, location)
+                    self._trigger_on_change(key, operation, location)
                 self._interrupt_event.wait(timeout=self.delay)
         finally:
-            s3.sync(self._client, self.bucket, self.folder, self.files)
+            changes = s3.sync(self._client, self.bucket, self.folder, self.files)
+            self._trigger_on_finish(changes)
 
-    def add(self, handle: Callable[[str, Operation, Location], None]) -> None:
-        """ Add an event handle
-        :param handle: The handle function to add
+    def add_on_change_handle(self, handle: Callable[[str, Operation, Location], None]) -> None:
+        """ Add an on change event handle
+        :param handle: The handle function to add.
+            The handle will receive the bucket key, the operation (MODIFIED, ADDED or DELETED),
+            and the location (LOCAL or BUCKET)
         """
-        self._hooks.add(handle)
+        self._on_change_hooks.add(handle)
+
+    def add_on_finish_handle(self, handle: Callable[[List[Tuple[str, Operation, Location]]], None]) -> None:
+        """ Add an on finish event handle
+        :param handle: The handle function to add.
+            The handle will receive a list of each change if any or an empty set.
+            Each list element contains the bucket key, the operation (MODIFIED, ADDED or DELETED),
+            and the location (LOCAL or BUCKET)
+        """
+        self._on_finish_hooks.add(handle)
 
     def remove(self, handle: Callable[[str, Operation, Location], None]) -> None:
         """ Remove an event handle
         :param handle: The handle function to remove
         """
-        self._hooks.remove(handle)
+        self._on_change_hooks.remove(handle)
 
     def stop(self):
         """ Stops the monitor """

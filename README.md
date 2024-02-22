@@ -84,20 +84,28 @@ with s3.Monitor(BUCKET, FOLDER, files={'config.yml', 'data/data.csv'}):
 ```
 
 Moreover, you can add handles to detect when the monitor makes the changes. For example:
+
 ```python
 from filecloudsync import s3
 from time import sleep
+from typing import List, Tuple
 
-# You can add handles to the monitor
-def my_handle(key: str, operation: s3.Operation, location: s3.Location):
+
+# Create the on change handdle
+def my_on_change_handle(key: str, operation: s3.Operation, location: s3.Location):
     # Print the key or the file (in key format) if the key has been ADDED, MODIFIED or DELETED,
     # and if the key has been changed in LOCAL or in the BUCKET
     print(f'The key or file {key} has been {operation.value} in {location.name}')
 
+# Create the on finish handle
+def my_on_finish_handle(changes: List[Tuple[str, s3.Operation, s3.Location]]):
+    # Print the list of the last changes before finishing. It could be the empty list
+    print(changes)
     
+# Create the monitor
 with s3.Monitor(BUCKET, FOLDER) as monitor:
     # Each time a key or file is changed (modified, added or deleted) the function my_handle will be called
-    monitor.add(my_handle)
+    monitor.add_on_change_handle(my_on_change_handle)
     # Do something
     sleep(120)
 ```

@@ -2,9 +2,11 @@ import os
 import time
 import unittest
 from os import makedirs
-from os.path import basename, join, exists
+from os.path import basename, join, exists, isdir
 from shutil import rmtree
 from tempfile import mkdtemp, mktemp
+from typing import List, Tuple
+
 from mysutils.file import write_file, save_json, read_file, load_json
 from mysutils.tmp import removable_tmp
 from mysutils.unittest import FileTestCase
@@ -33,12 +35,15 @@ def create_files() -> None:
     save_json({'a': 1, 'b': 2, 'c': 3 }, join(TEST_FOLDER, 'data', 'data.json'))
 
 
-def clean_test_files(bucket, *folders):
+def clean_test_files(bucket, *files):
     client = s3.connect()
-    for folder in folders:
-        s3.remove_sync_status(client.meta.endpoint_url, bucket, folder)
-        if folder and exists(folder):
-            rmtree(folder)
+    for file in files:
+        s3.remove_sync_status(client.meta.endpoint_url, bucket, file)
+        if file and exists(file):
+            if isdir(file):
+                rmtree(file)
+            else:
+                os.remove(file)
     try:
         keys = s3.get_bucket_keys(client, bucket)
         for key in keys:
@@ -50,6 +55,10 @@ def clean_test_files(bucket, *folders):
 
 def save_log_handle(filename, key: str, operation: Operation, location: Location) -> None:
     write_file(filename, f'The key or file {key} has been {operation.value} in {location.name}')
+
+
+def on_finish_handle(filename: str, changes: List[Tuple[str, Operation, Location]]) -> None:
+    write_file(filename, f'The last changes: {str(changes)}')
 
 
 class MyTestCase(FileTestCase):
@@ -242,7 +251,8 @@ class MyTestCase(FileTestCase):
             client = s3.connect()
             client.create_bucket(ACL='private', Bucket=TEST_BUCKET)
             with s3.Monitor(TEST_BUCKET, TEST_FOLDER, 5) as monitor:
-                monitor.add(partial(save_log_handle, tmp_file))
+                monitor.add_on_change_handle(partial(save_log_handle, tmp_file))
+                monitor.add_on_finish_handle(partial(on_finish_handle, f'{tmp_file}.finish'))
                 time.sleep(1)
                 # Modifying the local file
                 save_yaml({'config': 'modify'}, join(TEST_FOLDER, 'config.yml'))
@@ -310,7 +320,11 @@ class MyTestCase(FileTestCase):
                 print('Waiting some seconds...')
                 time.sleep(5)
         finally:
-            clean_test_files(TEST_BUCKET, TEST_FOLDER)
+            if exists(f'{tmp_file}.finish'):
+                self.assertListEqual(read_file(f'{tmp_file}.finish'), ['The last changes: []'])
+                clean_test_files(TEST_BUCKET, TEST_FOLDER, f'{tmp_file}.finish', tmp_file)
+            else:
+                clean_test_files(TEST_BUCKET, TEST_FOLDER, tmp_file)
         print('Finished')
 
     def test_sync_partial_files(self):
