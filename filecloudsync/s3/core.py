@@ -4,8 +4,7 @@ import boto3
 import hashlib
 from typing import Dict, Tuple, Set, Any, List
 from botocore.client import BaseClient
-from os import environ, makedirs, utime
-from os.path import expanduser, join, exists, dirname, splitext, realpath
+from os.path import expanduser, join, dirname, splitext, realpath
 
 from botocore.exceptions import ClientError
 from mysutils.tmp import removable_tmp
@@ -73,11 +72,11 @@ def get_credentials(**kwargs) -> dict:
     :param kwargs: The possible S3 credentials
     :return: A dictionary with the detected credentials
     """
-    access_key = kwargs.get('aws_access_key_id', environ.get(ACCESS_KEY_ENV))
-    secret_key = kwargs.get('aws_secret_access_key', environ.get(SECRET_KEY_ENV))
-    endpoint = kwargs.get('endpoint_url', environ.get(ENDPOINT_ENV))
+    access_key = kwargs.get('aws_access_key_id', os.environ.get(ACCESS_KEY_ENV))
+    secret_key = kwargs.get('aws_secret_access_key', os.environ.get(SECRET_KEY_ENV))
+    endpoint = kwargs.get('endpoint_url', os.environ.get(ENDPOINT_ENV))
     for file in [S3_CONF_FILE, CONFIG_PATH]:
-        if exists(file):
+        if os.path.exists(file):
             s3conf = load_yaml(file)
             for key, value in kwargs:
                 if key == 'aws_access_key_id':
@@ -123,7 +122,7 @@ def upload_file(file: str, client: BaseClient, bucket: str, key: str) -> (float,
     client.upload_file(file, bucket, key)
     bucket_object = client.head_object(Bucket=bucket, Key=key)
     last_modified = bucket_object['LastModified'].astimezone(tzlocal()).timestamp()
-    utime(file, (last_modified, last_modified))
+    os.utime(file, (last_modified, last_modified))
     return last_modified, bucket_object['ETag'].replace('"', '')
 
 
@@ -137,11 +136,11 @@ def download_file(client: BaseClient, bucket: str, key: str, dest: str) -> (floa
     :return:
     """
     file_path = key_to_path(dest, key)
-    makedirs(dirname(file_path), exist_ok=True)
+    os.makedirs(dirname(file_path), exist_ok=True)
     client.download_file(bucket, key, file_path)
     bucket_object = client.head_object(Bucket=bucket, Key=key)
     last_modified = bucket_object['LastModified'].astimezone(tzlocal()).timestamp()
-    utime(file_path, (last_modified, last_modified))
+    os.utime(file_path, (last_modified, last_modified))
     return last_modified, bucket_object['ETag'].replace('"', '')
 
 
@@ -182,7 +181,7 @@ def _save_sync_status(
     :param local_files: The list of local files to synchronize
     """
     status_folder = _status_folder()
-    makedirs(status_folder, exist_ok=True)
+    os.makedirs(status_folder, exist_ok=True)
     keys = {key: last_modified for key, last_modified in bucket_files.items()}
     files = {file: last_modified for file, last_modified in local_files.items()}
     save_json(keys, status_file(endpoint, bucket, folder, Location.BUCKET))
@@ -260,7 +259,7 @@ def _load_sync_status(
     :return: The cached bucket keys and the cached local files with their timestamps and hash
     """
     status_file_path = status_file(endpoint, bucket, folder, where)
-    status = load_json(status_file_path) if exists(status_file_path) else {}
+    status = load_json(status_file_path) if os.path.exists(status_file_path) else {}
     return {key: value for key, value in status.items() if not files or key in files}
 
 
@@ -271,9 +270,9 @@ def remove_sync_status(endpoint: str, bucket: str, folder: str) -> None:
     :param bucket: The bucket name
     :param folder: The folder to synchronize with
     """
-    if folder and exists(status_file(endpoint, bucket, folder, Location.BUCKET)):
+    if folder and os.path.exists(status_file(endpoint, bucket, folder, Location.BUCKET)):
         os.remove(status_file(endpoint, bucket, folder, Location.BUCKET))
-    if folder and exists(status_file(endpoint, bucket, folder, Location.LOCAL)):
+    if folder and os.path.exists(status_file(endpoint, bucket, folder, Location.LOCAL)):
         os.remove(status_file(endpoint, bucket, folder, Location.LOCAL))
 
 
@@ -705,3 +704,37 @@ def write_yaml(obj: Any, client: BaseClient, bucket: str, key: str, encoding: st
     with removable_tmp(suffix=splitext(key)[1]) as tmp_file:
         save_yaml(obj, tmp_file, True, encoding)
         client.upload_file(tmp_file, bucket, key)
+
+
+def exists(client: BaseClient, bucket: str, key: str = None) -> bool:
+    """ Check if a bucket and a key exist.
+
+    :param client: The s3 client
+    :param bucket: The s3 bucket
+    :param key: The bucket key. If it is not given, then it only check the bucket.
+    :return: True if that bucket and key exist if a key is given, if not, True if that bucket exists, otherwise False
+    """
+    try:
+        # Send a request to check the bucket
+        client.head_bucket(Bucket=bucket)
+        if key:
+            client.head_object(Bucket=bucket, Key=key)
+        return True
+    except ClientError:
+        # If an error occurs, the bucket does not exist or is not accessible
+        return False
+
+
+def split(uri: str) -> Tuple[str, str, str]:
+    """ Split a URL to a bucket key to protocol, bucket name and path
+
+    :param uri: The URI to the key
+    :return: A tuple with the protocol (typically s3://), the bucket name and the key path
+    """
+    uri = uri.strip()
+    protocol = 's3://' if uri.startswith('s3://') else ''
+    uri = uri[len(protocol):]
+    pos = uri.find('/')
+    name = uri if pos == -1 else uri[:pos]
+    path = '' if pos == -1 else uri[pos + 1:]
+    return protocol, name, path

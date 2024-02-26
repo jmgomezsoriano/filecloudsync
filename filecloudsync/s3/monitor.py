@@ -89,6 +89,8 @@ class Monitor(Thread):
     def stop(self):
         """ Stops the monitor """
         self._stop_event = True
+        self._interrupt_event.set()
+        self.join()
 
     def join(self, timeout: int = None):
         """ Wait until the thread finishes or the timeout is reached """
@@ -103,4 +105,3 @@ class Monitor(Thread):
     def __exit__(self, exc_type, exc_value, traceback):
         """ Stop the monitor """
         self.stop()
-        self.join()

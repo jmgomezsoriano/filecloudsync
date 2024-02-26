@@ -44,12 +44,12 @@ def clean_test_files(bucket, *files):
                 rmtree(file)
             else:
                 os.remove(file)
-    try:
+    if s3.exists(client, bucket):
         keys = s3.get_bucket_keys(client, bucket)
         for key in keys:
             client.delete_object(Bucket=bucket, Key=key)
         client.delete_bucket(Bucket=TEST_BUCKET)
-    except client.exceptions.NoSuchBucket:
+    else:
         logger.warning("The bucket does not exist, nothing to remove")
 
 
@@ -341,6 +341,36 @@ class MyTestCase(FileTestCase):
             self.assertSetEqual(files, {'config.yml'})
         finally:
             clean_test_files(TEST_BUCKET, TEST_FOLDER)
+
+    def test_exists(self) -> None:
+        """ Test if the bucket synchronizes with an empty local folder """
+        try:
+            logger.info(f'Testing the exist() function with the bucket {TEST_BUCKET}...')
+            create_files()
+            client = s3.connect()
+            self.assertFalse(s3.exists(client, TEST_BUCKET))
+            self.assertFalse(s3.exists(client, TEST_BUCKET, 'test.txt'))
+            self.assertFalse(s3.exists(client, TEST_BUCKET, 'config.yml'))
+            self.assertFalse(s3.exists(client, TEST_BUCKET, 'config2.yml'))
+            self.assertFalse(s3.exists(client,  TEST_BUCKET, 'data/data.json'))
+            client.create_bucket(ACL='private', Bucket=TEST_BUCKET)
+            s3.sync(client, TEST_BUCKET, TEST_FOLDER)
+            self.assertTrue(s3.exists(client, TEST_BUCKET))
+            self.assertTrue(s3.exists(client, TEST_BUCKET, 'test.txt'))
+            self.assertTrue(s3.exists(client, TEST_BUCKET, 'config.yml'))
+            self.assertTrue(s3.exists(client, TEST_BUCKET, 'config2.yml'))
+            self.assertTrue(s3.exists(client, TEST_BUCKET, 'data/data.json'))
+        finally:
+            clean_test_files(TEST_BUCKET, TEST_FOLDER)
+
+    def test_split(self) -> None:
+        logger.info(f'Testing the split() function with the bucket {TEST_BUCKET}...')
+        self.assertTupleEqual(s3.split('s3://my_bucket/file.txt'), ('s3://', 'my_bucket', 'file.txt'))
+        self.assertTupleEqual(s3.split('my_bucket/file.txt'), ('', 'my_bucket', 'file.txt'))
+        self.assertTupleEqual(s3.split('my_bucket/'), ('', 'my_bucket', ''))
+        self.assertTupleEqual(s3.split('my_bucket'), ('', 'my_bucket', ''))
+        self.assertTupleEqual(s3.split('s3://my_bucket'), ('s3://', 'my_bucket', ''))
+        self.assertTupleEqual(s3.split('s3://my_bucket/'), ('s3://', 'my_bucket', ''))
 
 
 if __name__ == '__main__':
