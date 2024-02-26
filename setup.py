@@ -27,7 +27,7 @@ class CleanCommand(setuptools.Command):
 setuptools.setup(
     cmdclass={'clean': CleanCommand},
     name='filecloudsync',
-    version='0.0.5',
+    version='0.0.6',
     url='https://github.com/jmgomezsoriano/filecloudsync',
     license='GPL v3',
     author='José Manuel Gómez Soriano',
@@ -46,8 +46,7 @@ setuptools.setup(
     requirements=[
         'PyYAML>=5.4.1,<7',
         'boto3>=1.34.34,<2',
-        'mysmallutils>=2.0.15,<3',
-        # 'watchdog>=4.0.0,4.1'
+        'mysmallutils>=2.0.15,<3'
     ],
     python_requires='>=3.7,<4'
 )
