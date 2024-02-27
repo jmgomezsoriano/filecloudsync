@@ -78,7 +78,7 @@ def get_credentials(**kwargs) -> dict:
     for file in [S3_CONF_FILE, CONFIG_PATH]:
         if os.path.exists(file):
             s3conf = load_yaml(file)
-            for key, value in kwargs:
+            for key, value in kwargs.items():
                 if key == 'aws_access_key_id':
                     s3conf[key] = access_key if access_key else s3conf.get(key)
                 elif key == 'aws_secret_access_key':
