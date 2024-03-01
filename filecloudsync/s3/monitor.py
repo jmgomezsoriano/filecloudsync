@@ -106,7 +106,7 @@ class Monitor(Thread):
         self.join()
         if self.remove:
             s3.remove_sync_status(self._client.meta.endpoint_url, self.bucket, self.folder)
-            rmtree(self.folder)
+            rmtree(self.folder, ignore_errors=True)
 
     def join(self, timeout: int = None):
         """ Wait until the thread finishes or the timeout is reached """
