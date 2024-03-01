@@ -1,3 +1,4 @@
+from shutil import rmtree
 from threading import Thread, Event
 from typing import Set, Callable, List, Tuple
 
@@ -8,7 +9,15 @@ from filecloudsync.s3.core import Location, Operation
 class Monitor(Thread):
     """ A monitor to synchronize a bucket with a folder. """
 
-    def __init__(self, bucket: str, folder: str, delay: int = 60, files: Set[str] = None, **kwargs) -> None:
+    def __init__(
+            self,
+            bucket: str,
+            folder: str,
+            delay: int = 60,
+            files: Set[str] = None,
+            remove: bool = False,
+            **kwargs
+    ) -> None:
         """ Create a monitor of a bucket or some files of that bucket and synchronize them with a given folder
 
         .. code-block:: python
@@ -20,6 +29,9 @@ class Monitor(Thread):
         :param delay: The delay between bucket checking
         :param files: A list of keys to watch in Unix file path format.
             If none is given, then check all the bucket/folder files.
+        :param remove: Decide if the local synchronized folder is deleted when the monitor stops,
+            and the synchronization data is also removed.
+            This parameter is useful when the folder is created in a temporal directory.
         :param kwargs: The s3 connection credentials
         """
         super().__init__()
@@ -28,6 +40,7 @@ class Monitor(Thread):
         self.folder = folder
         self.delay = delay
         self.files = files
+        self.remove = remove
         self._stop_event = False
         self._interrupt_event = Event()
         self._on_change_hooks = set()
@@ -91,6 +104,9 @@ class Monitor(Thread):
         self._stop_event = True
         self._interrupt_event.set()
         self.join()
+        if self.remove:
+            s3.remove_sync_status(self._client.meta.endpoint_url, self.bucket, self.folder)
+            rmtree(self.folder)
 
     def join(self, timeout: int = None):
         """ Wait until the thread finishes or the timeout is reached """

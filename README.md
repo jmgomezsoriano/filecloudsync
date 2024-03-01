@@ -110,6 +110,20 @@ with s3.Monitor(BUCKET, FOLDER) as monitor:
     sleep(120)
 ```
 
+Finally, you can delete all the synchronization information when the monitor stops, for example, 
+if you want a temporal synchronization:
+
+```python
+from filecloudsync import s3
+from time import sleep
+
+# The same as previous but shorter and checking each 60 seconds 
+with s3.Monitor(BUCKET, FOLDER, remove=True):
+    # Do something
+    sleep(120)  # Synchronizes 2 times
+# Here the FOLDER and the synchronization information between the bucket and that folder is removed in local
+```
+
 ## Other utilities
 
 ### read_yaml(), read_json()
