@@ -116,12 +116,14 @@ if you want a temporal synchronization:
 ```python
 from filecloudsync import s3
 from time import sleep
+from tempfile import mkdtemp
 
+folder = mkdtemp()
 # The same as previous but shorter and checking each 60 seconds 
-with s3.Monitor(BUCKET, FOLDER, remove=True):
+with s3.Monitor(BUCKET, folder, remove=True):
     # Do something
     sleep(120)  # Synchronizes 2 times
-# Here the FOLDER and the synchronization information between the bucket and that folder is removed in local
+# Here the folder and the synchronization information between the bucket and that folder are locally removed
 ```
 
 ## Other utilities
