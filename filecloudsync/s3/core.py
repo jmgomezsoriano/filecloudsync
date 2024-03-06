@@ -1,7 +1,7 @@
 import os
+import hashlib
 
 import boto3
-import hashlib
 from typing import Dict, Tuple, Set, Any, List
 from botocore.client import BaseClient
 from os.path import expanduser, join, dirname, splitext, realpath
@@ -14,7 +14,7 @@ from dateutil.tz import tzlocal
 from logging import getLogger
 from enum import Enum
 
-from filecloudsync.file import get_folder_files
+from filecloudsync.file import key_to_path, file_etag, get_folder_files
 from filecloudsync.s3.exceptions import TagsNotMatchError, S3ConnectionError
 
 logger = getLogger(__name__)
@@ -50,37 +50,17 @@ class Location(Enum):
     BUCKET = "keys"
 
 
-def key_to_path(folder: str, key: str) -> str:
-    """ Convert a key into a file path
+def status_file(endpoint: str, bucket: str, folder: str, location: Location) -> str:
+    """ Get the file path of the synchronization status file
 
-    :param folder: The folder from which the key is synchronized
-    :param key: The key to convert
-    :return: A path to file in the folder which represents that key
+    :param endpoint: The S3 endpoint
+    :param bucket: The bucket name
+    :param folder: The folder to synchronize with
+    :param location: If the cache is for local files or for bucket keys
+    :return: The file path to the status cache file
     """
-    return join(folder, *key.split('/'))
-
-
-def file_etag(filename: str, part_size: int = 8 * 1024 * 1024) -> str:
-    """ Calculate the S3 eTag from a local file
-
-    :param filename:
-    :param part_size: The size of each file part.
-        By default, 8MB.
-    :return: The eTag
-    """
-    md5s = []
-    with open(filename, 'rb') as f:
-        while True:
-            data = f.read(part_size)
-            if not data:
-                break
-            md5s.append(hashlib.md5(data))
-    if len(md5s) == 1:
-        return md5s[0].hexdigest()
-    md5 = hashlib.md5()
-    for md5_obj in md5s:
-        md5.update(md5_obj.digest())
-    return f'{md5.hexdigest()}-{len(md5s)}'
+    hash_code = hashlib.sha1(''.join([endpoint, bucket, realpath(folder)]).encode('utf-8')).hexdigest()
+    return join(_status_folder(), f'{hash_code}.{location.value}.json.gz')
 
 
 def get_credentials(**kwargs) -> dict:
@@ -149,13 +129,13 @@ def upload_file(file: str, client: BaseClient, bucket: str, key: str) -> (float,
 
 
 def download_file(client: BaseClient, bucket: str, key: str, dest: str) -> (float, str):
-    """
+    """ Download a file form a S3 bucket.
 
-    :param client:
-    :param bucket:
-    :param key:
-    :param dest:
-    :return:
+    :param client: The client
+    :param bucket: The bucket name.
+    :param key: The key of the bucket file
+    :param dest: Where the key is stored in
+    :return: The last modified date and the key eTag
     """
     file_path = key_to_path(dest, key)
     os.makedirs(dirname(file_path), exist_ok=True)
@@ -172,19 +152,6 @@ def _status_folder() -> str:
     :return: A folder path.
     """
     return join(expanduser('~'), S3_STATUS_FOLDER)
-
-
-def status_file(endpoint: str, bucket: str, folder: str, location: Location) -> str:
-    """ Get the file path of the synchronization status file
-
-    :param endpoint: The S3 endpoint
-    :param bucket: The bucket name
-    :param folder: The folder to synchronize with
-    :param location: If the cache is for local files or for bucket keys
-    :return: The file path to the status cache file
-    """
-    hash_code = hashlib.sha1(''.join([endpoint, bucket, realpath(folder)]).encode('utf-8')).hexdigest()
-    return join(_status_folder(), f'{hash_code}.{location.value}.json.gz')
 
 
 def _save_sync_status(
