@@ -10,7 +10,6 @@ from botocore.exceptions import ClientError
 from mysutils.tmp import removable_tmp
 from mysutils.yaml import load_yaml, save_yaml
 from mysutils.file import save_json, load_json
-from mysutils.hash import file_md5
 from dateutil.tz import tzlocal
 from logging import getLogger
 from enum import Enum
@@ -59,6 +58,29 @@ def key_to_path(folder: str, key: str) -> str:
     :return: A path to file in the folder which represents that key
     """
     return join(folder, *key.split('/'))
+
+
+def file_etag(filename: str, part_size: int = 8 * 1024 * 1024) -> str:
+    """ Calculate the S3 eTag from a local file
+
+    :param filename:
+    :param part_size: The size of each file part.
+        By default, 8MB.
+    :return: The eTag
+    """
+    md5s = []
+    with open(filename, 'rb') as f:
+        while True:
+            data = f.read(part_size)
+            if not data:
+                break
+            md5s.append(hashlib.md5(data))
+    if len(md5s) == 1:
+        return md5s[0].hexdigest()
+    md5 = hashlib.md5()
+    for md5_obj in md5s:
+        md5.update(md5_obj.digest())
+    return f'{md5.hexdigest()}-{len(md5s)}'
 
 
 def get_credentials(**kwargs) -> dict:
@@ -416,7 +438,7 @@ def _download_file(
     :return: A tuple with the bucket key timestamp and hash and the local file timestamp and hash
     """
     bucket_last_modified, bucket_etag = download_file(client, bucket, key, folder)
-    local_last_modified, local_etag = bucket_last_modified, file_md5(key_to_path(folder, key))
+    local_last_modified, local_etag = bucket_last_modified, file_etag(key_to_path(folder, key))
     if bucket_etag != local_etag:
         raise TagsNotMatchError(f'The local tag {local_etag} differs to bucket one {bucket_etag}.')
     bucket_files[key], local_files[key] = (bucket_last_modified, bucket_etag), (bucket_last_modified, bucket_etag)
