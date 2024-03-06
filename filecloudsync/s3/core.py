@@ -570,7 +570,33 @@ def check_changes(
     """
     bucket_diff, bucket_files = check_bucket_changes(client, bucket, folder, files)
     local_diff, local_files = check_local_changes(client, bucket, folder, files)
+    _remove_exactly_equal_files(bucket_diff, bucket_files, local_diff, local_files)
     return bucket_diff, bucket_files, local_diff, local_files
+
+
+def _remove_exactly_equal_files(
+        bucket_diff: Dict[str, Operation],
+        bucket_files: Dict[str, tuple[float, str]],
+        local_diff: Dict[str, Operation],
+        local_files: Dict[str, tuple[float, str]]
+) -> None:
+    """ Remove the supposed changes that actually are the same files.
+        It can happend when the synchronization cache is removed.
+
+    :param bucket_diff: The list of changes detected in the bucket
+    :param bucket_files: The list of bucket files
+    :param local_diff: The list of changes detected in the local folder
+    :param local_files: The list of folder files
+    """
+    added_bucket_operations = {key for key, op in bucket_diff.items() if op == Operation.ADDED}
+    added_local_operations = {key for key, op in local_diff.items() if op == Operation.ADDED}
+    for key in added_bucket_operations | added_local_operations:
+        if key in bucket_files and key in local_files and \
+                (bucket_files[key][0] != local_files[key][0] or int(bucket_files[key][1]) != local_files[key][1]):
+            if key in bucket_diff:
+                del bucket_diff[key]
+            if key in local_diff:
+                del local_diff[key]
 
 
 def check_bucket_changes(
