@@ -16,6 +16,7 @@ class Monitor(Thread):
             delay: int = 60,
             files: Set[str] = None,
             remove: bool = False,
+            readonly: bool = False,
             **kwargs
     ) -> None:
         """ Create a monitor of a bucket or some files of that bucket and synchronize them with a given folder
@@ -32,6 +33,7 @@ class Monitor(Thread):
         :param remove: Decide if the local synchronized folder is deleted when the monitor stops,
             and the synchronization data is also removed.
             This parameter is useful when the folder is created in a temporal directory.
+        :param readonly: If the bucket is a readonly bucket.
         :param kwargs: The s3 connection credentials
         """
         super().__init__()
@@ -45,7 +47,8 @@ class Monitor(Thread):
         self._interrupt_event = Event()
         self._on_change_hooks = set()
         self._on_finish_hooks = set()
-        s3.sync(self._client, self.bucket, self.folder, self.files)
+        self.readonly = readonly
+        s3.sync(self._client, self.bucket, self.folder, self.files, readonly)
 
     def _trigger_on_change(self, file: str, operation: Operation, location: Location) -> None:
         """ Trigger an event to the on change hooks when a file is changed
@@ -69,11 +72,12 @@ class Monitor(Thread):
         """ Execute the monitor """
         try:
             while not self._stop_event:
-                for key, operation, location in s3.sync(self._client, self.bucket, self.folder, self.files):
+                changes = s3.sync(self._client, self.bucket, self.folder, self.files, self.readonly)
+                for key, operation, location in changes:
                     self._trigger_on_change(key, operation, location)
                 self._interrupt_event.wait(timeout=self.delay)
         finally:
-            changes = s3.sync(self._client, self.bucket, self.folder, self.files)
+            changes = s3.sync(self._client, self.bucket, self.folder, self.files, self.readonly)
             self._trigger_on_finish(changes)
 
     def add_on_change_handle(self, handle: Callable[[str, Operation, Location], None]) -> None:

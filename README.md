@@ -51,7 +51,13 @@ print(changes)
 #   ('config.yml', <Operation.ADDED: 'added'>, <Location.BUCKET: 'keys'>), 
 #   ('data/data.json', <Operation.MODIFIED: 'modified'>, <Location.LOCAL: 'files'>),
 #   ('test.txt', <Operation.DELETED: 'deleted'>, <Location.BUCKET: 'keys'>)
-# ] 
+# ]
+```
+You can also define a readonly mode to avoid modifications in the bucket.
+This means you will be able to modify the local folder but not the bucket.
+
+```python
+s3.sync(client, BUCKET_NAME, FOLDER, readonly=True)
 ```
 
 ## Monitor
@@ -110,6 +116,17 @@ with s3.Monitor(BUCKET, FOLDER) as monitor:
     sleep(120)
 ```
 
+You can avoid bucket modification creating a readonly monitor.
+This means, local changes will not affect the bucket:
+
+```python
+from filecloudsync import s3
+
+with s3.Monitor(BUCKET, FOLDER, readonly=True) as monitor:
+    # Here I change the local folder
+    sleep(120)
+```
+
 Finally, you can delete all the synchronization information when the monitor stops, for example, 
 if you want a temporal synchronization:
 
@@ -125,6 +142,8 @@ with s3.Monitor(BUCKET, folder, remove=True):
     sleep(120)  # Synchronizes 2 times
 # Here the folder and the synchronization information between the bucket and that folder are locally removed
 ```
+
+
 
 ## Other utilities
 

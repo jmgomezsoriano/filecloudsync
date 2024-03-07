@@ -327,6 +327,111 @@ class MyTestCase(FileTestCase):
                 clean_test_files(TEST_BUCKET, TEST_FOLDER, tmp_file)
         print('Finished')
 
+    def test_readonly(self):
+        tmp_file = mktemp()
+        try:
+            logger.info(f'Creating a readonly bucket {TEST_BUCKET} and syncrhonize it...')
+            # Create an initial synchronization to start to work with
+            create_files()
+            client = s3.connect()
+            client.create_bucket(ACL='private', Bucket=TEST_BUCKET)
+            s3.sync(client, TEST_BUCKET, TEST_FOLDER)
+            # Check if the files exist after the synchronization
+            self.assertTrue(s3.exists(client, TEST_BUCKET, 'test.txt', 'config.yml', 'config2.yml', 'data/data.json'))
+            # Check if exists() function works properly
+            self.assertFalse(s3.exists(client, TEST_BUCKET, 'test.txt', 'config.yml', 'config2.yml', 'data.json'))
+            # Make modifications in the s3 bucket
+            s3.write_yaml({'test': 'Hello World'}, client, TEST_BUCKET, 'test.yml')  # Create file
+            s3.write_yaml({'model': 'MyNewModel'}, client, TEST_BUCKET, 'config.yml')  # Modify file
+            client.delete_object(Bucket=TEST_BUCKET, Key='test.txt')
+            # Checking the readonly synchronization when the bucket is modified
+            s3.sync(client, TEST_BUCKET, TEST_FOLDER, readonly=True)
+            # Check the created file
+            self.assertDictEqual({'test': 'Hello World'}, load_yaml(join(TEST_FOLDER, 'test.yml')))
+            # Check the modified file
+            self.assertDictEqual({'model': 'MyNewModel'}, load_yaml(join(TEST_FOLDER, 'config.yml')))
+            self.assertNotExists(join(TEST_FOLDER, 'test.txt'))  # Check deleted file
+            # TODO: finish the unit tests with readonly buckets
+            # TODO: if a local file is modified, it must be restored from the bucket copy in readonly mode
+            # TODO: if a local file is deleted, it must be restored from the bucket copy in readonly mode
+            # TODO: check the conditions when a less updated local file is synchronized in readonly mode
+            # Check with a monitor
+            # with s3.Monitor(TEST_BUCKET, TEST_FOLDER, 2, readonly=True) as monitor:
+            #     monitor.add_on_change_handle(partial(save_log_handle, tmp_file))
+            #     monitor.add_on_finish_handle(partial(on_finish_handle, f'{tmp_file}.finish'))
+            #     time.sleep(1)
+            #     # Modifying the local file
+            #     save_yaml({'config': 'modify'}, join(TEST_FOLDER, 'config.yml'))
+            #     time.sleep(3)
+            #     self.assertListEqual(read_file(tmp_file), ['The key or file config.yml has been modified in LOCAL'])
+            #     self.assertDictEqual(s3.read_yaml(client, TEST_BUCKET, 'config.yml'), {'config': 'modify'})
+            #     # Deleting the local file
+            #     os.remove(join(TEST_FOLDER, 'config.yml'))
+            #     time.sleep(3)
+            #     self.assertListEqual(read_file(tmp_file), ['The key or file config.yml has been deleted in LOCAL'])
+            #     with self.assertRaises(ClientError):
+            #         client.head_object(Bucket=TEST_BUCKET, Key='config.yml')
+            #     # Creating a local file
+            #     save_yaml({'config': 'modify 2'}, join(TEST_FOLDER, 'config.yml'))
+            #     time.sleep(3)
+            #     self.assertListEqual(read_file(tmp_file), ['The key or file config.yml has been added in LOCAL'])
+            #     self.assertDictEqual(s3.read_yaml(client, TEST_BUCKET, 'config.yml'), {'config': 'modify 2'})
+            #     # Modifying bucket file
+            #     s3.write_yaml({'config': 'modify 3'}, client, TEST_BUCKET, 'config.yml')
+            #     time.sleep(3)
+            #     self.assertListEqual(read_file(tmp_file), ['The key or file config.yml has been modified in BUCKET'])
+            #     self.assertDictEqual(load_yaml(join(TEST_FOLDER, 'config.yml')), {'config': 'modify 3'})
+            #     # Deleting bucket file
+            #     client.delete_object(Bucket=TEST_BUCKET, Key='config.yml')
+            #     time.sleep(3)
+            #     self.assertListEqual(read_file(tmp_file), ['The key or file config.yml has been deleted in BUCKET'])
+            #     self.assertNotExists(join(TEST_FOLDER, 'config.yml'))
+            #     # Creating bucket file
+            #     s3.write_yaml({'config': 'modify 4'}, client, TEST_BUCKET, 'config.yml')
+            #     time.sleep(3)
+            #     self.assertListEqual(read_file(tmp_file), ['The key or file config.yml has been added in BUCKET'])
+            #     self.assertDictEqual(load_yaml(join(TEST_FOLDER, 'config.yml')), {'config': 'modify 4'})
+            #     # Creating a previously not monitored local file
+            #     save_yaml({'config': 'modify 5'}, join(TEST_FOLDER, 'config2.yml'))
+            #     time.sleep(3)
+            #     self.assertListEqual(read_file(tmp_file), ['The key or file config2.yml has been modified in LOCAL'])
+            #     self.assertDictEqual(s3.read_yaml(client, TEST_BUCKET, 'config2.yml'), {'config': 'modify 5'})
+            #     # Modifying a previously not monitored local file
+            #     save_yaml({'config': 'modify 6'}, join(TEST_FOLDER, 'config2.yml'))
+            #     time.sleep(3)
+            #     self.assertListEqual(read_file(tmp_file), ['The key or file config2.yml has been modified in LOCAL'])
+            #     self.assertDictEqual(s3.read_yaml(client, TEST_BUCKET, 'config2.yml'), {'config': 'modify 6'})
+            #     # Deleting a not monitored local file
+            #     os.remove(join(TEST_FOLDER, 'config2.yml'))
+            #     time.sleep(3)
+            #     self.assertListEqual(read_file(tmp_file), ['The key or file config2.yml has been deleted in LOCAL'])
+            #     with self.assertRaises(ClientError):
+            #         client.head_object(Bucket=TEST_BUCKET, Key='config2.yml')
+            #     # Creating a not monitored bucket file
+            #     s3.write_yaml({'config': 'modify 7'}, client, TEST_BUCKET, 'config2.yml')
+            #     time.sleep(3)
+            #     self.assertListEqual(read_file(tmp_file), ['The key or file config2.yml has been added in BUCKET'])
+            #     self.assertDictEqual(load_yaml(join(TEST_FOLDER, 'config2.yml')), {'config': 'modify 7'})
+            #     # Modifying a not monitored bucket file
+            #     s3.write_yaml({'config': 'modify 8'}, client, TEST_BUCKET, 'config2.yml')
+            #     time.sleep(3)
+            #     self.assertListEqual(read_file(tmp_file), ['The key or file config2.yml has been modified in BUCKET'])
+            #     self.assertDictEqual(load_yaml(join(TEST_FOLDER, 'config2.yml')), {'config': 'modify 8'})
+            #     # Deleting a not monitored bucket file
+            #     client.delete_object(Bucket=TEST_BUCKET, Key='config2.yml')
+            #     time.sleep(3)
+            #     self.assertListEqual(read_file(tmp_file), ['The key or file config2.yml has been deleted in BUCKET'])
+            #     self.assertNotExists(join(TEST_FOLDER, 'config2.yml'))
+            #     # Finishing
+            #     print('Waiting some seconds...')
+            #     time.sleep(5)
+        finally:
+            if exists(f'{tmp_file}.finish'):
+                self.assertListEqual(read_file(f'{tmp_file}.finish'), ['The last changes: []'])
+                clean_test_files(TEST_BUCKET, TEST_FOLDER, f'{tmp_file}.finish', tmp_file)
+            else:
+                clean_test_files(TEST_BUCKET, TEST_FOLDER, tmp_file)
+
     def test_sync_partial_files(self):
         """ Test if the bucket synchronizes with an empty local folder """
         try:

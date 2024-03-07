@@ -531,7 +531,13 @@ def apply_local_changes(
             _sync_bucket_remove(client, bucket, key, folder, bucket_files, local_files)
 
 
-def sync(client: BaseClient, bucket: str, folder: str, files: Set[str] = None) -> List[Tuple[str, Operation, Location]]:
+def sync(
+        client: BaseClient,
+        bucket: str,
+        folder: str,
+        files: Set[str] = None,
+        readonly: bool = False
+) -> List[Tuple[str, Operation, Location]]:
     """ Synchronize a S3 bucket and a folder.
 
     :param client: The S3 client.
@@ -539,8 +545,9 @@ def sync(client: BaseClient, bucket: str, folder: str, files: Set[str] = None) -
     :param folder: The folder to synchronize with.
     :param files: A list of keys to watch in Unix file path format.
             If none is given, then check all the bucket/folder files.
+    :param readonly: If the bucket is a readonly bucket.
     """
-    bucket_diff, bucket_files, local_diff, local_files = check_changes(client, bucket, folder, files)
+    bucket_diff, bucket_files, local_diff, local_files = check_changes(client, bucket, folder, files, readonly)
     try:
         # Apply changes
         apply_bucket_changes(client, bucket, folder, bucket_files, local_files, bucket_diff)
@@ -556,7 +563,8 @@ def check_changes(
         client: BaseClient,
         bucket: str,
         folder: str,
-        files: Set[str] = None
+        files: Set[str] = None,
+        readonly: bool = False
 ) -> Tuple[Dict[str, Operation], Dict[str, Tuple[float, str]], Dict[str, Operation], Dict[str, Tuple[float, str]]]:
     """ Check the changes of a S3 bucket and a folder.
 
@@ -565,11 +573,12 @@ def check_changes(
     :param folder: The folder to check.
     :param files: A list of keys to watch in Unix file path format.
             If none is given, then check all the bucket/folder files.
-
+    :param readonly: If the bucket is a readonly bucket.
     :return: A tuple with the bucket differences, the bucket files, the local differences and the local files.
     """
     bucket_diff, bucket_files = check_bucket_changes(client, bucket, folder, files)
     local_diff, local_files = check_local_changes(client, bucket, folder, files)
+    local_diff = {} if readonly else local_diff
     _remove_exactly_equal_files(bucket_diff, bucket_files, local_diff, local_files)
     return bucket_diff, bucket_files, local_diff, local_files
 
@@ -721,7 +730,7 @@ def write_yaml(obj: Any, client: BaseClient, bucket: str, key: str, encoding: st
         client.upload_file(tmp_file, bucket, key)
 
 
-def exists(client: BaseClient, bucket: str, key: str = None) -> bool:
+def exists(client: BaseClient, bucket: str, *keys: str) -> bool:
     """ Check if a bucket and a key exist.
 
     :param client: The s3 client
@@ -731,9 +740,10 @@ def exists(client: BaseClient, bucket: str, key: str = None) -> bool:
     """
     try:
         # Send a request to check the bucket
-        client.head_bucket(Bucket=bucket)
-        if key:
-            client.head_object(Bucket=bucket, Key=key)
+        for key in keys:
+            client.head_bucket(Bucket=bucket)
+            if key:
+                client.head_object(Bucket=bucket, Key=key)
         return True
     except ClientError:
         # If an error occurs, the bucket does not exist or is not accessible
