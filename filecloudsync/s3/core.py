@@ -1,8 +1,9 @@
+# TODO: Creating a register of synchronized folders to avoid synchronize different buckets in the same folder
 import os
 import hashlib
 
 import boto3
-from typing import Dict, Tuple, Set, Any, List
+from typing import Dict, Tuple, Set, Any, List, Union
 from botocore.client import BaseClient
 from os.path import expanduser, join, dirname, splitext, realpath
 
@@ -14,7 +15,7 @@ from dateutil.tz import tzlocal
 from logging import getLogger
 from enum import Enum
 
-from filecloudsync.file import key_to_path, file_etag, get_folder_files
+from filecloudsync.file import key_to_path, file_etag, get_folder_files, DEFAULT_MULTIPART_CHUNK_SIZE
 from filecloudsync.s3.exceptions import TagsNotMatchError, S3ConnectionError
 
 logger = getLogger(__name__)
@@ -36,6 +37,8 @@ MISSING_SECRETS_MSG = (
     f'endpoint_url: <endpoint URL>\n'
 )
 
+MULTIPART_CHUNK_SIZES = {}
+
 
 class Operation(Enum):
     """ The type of operation realized """
@@ -48,6 +51,16 @@ class Location(Enum):
     """ Where the files are modified """
     LOCAL = "files"
     BUCKET = "keys"
+
+
+def multipart_chunk_size(endpoint: Union[str, BaseClient]) -> int:
+    """ Get the multipart chunk size.
+
+    :param endpoint: The endpoint URL or the client.
+    :return: The chunk size in bytes
+    """
+    endpoint = endpoint.meta.endpoint_url if isinstance(endpoint, BaseClient) else endpoint
+    return MULTIPART_CHUNK_SIZES.get(endpoint, DEFAULT_MULTIPART_CHUNK_SIZE) * 1024 * 1024
 
 
 def status_file(endpoint: str, bucket: str, folder: str, location: Location) -> str:
@@ -77,6 +90,11 @@ def get_credentials(**kwargs) -> dict:
     access_key = kwargs.get('aws_access_key_id', os.environ.get(ACCESS_KEY_ENV))
     secret_key = kwargs.get('aws_secret_access_key', os.environ.get(SECRET_KEY_ENV))
     endpoint = kwargs.get('endpoint_url', os.environ.get(ENDPOINT_ENV))
+    if 'multipart_chunk_size_mb' in kwargs:
+        multipart_chunk_size = kwargs['multipart_chunk_size_mb']
+        del kwargs['multipart_chunk_size_mb']
+    else:
+        multipart_chunk_size = DEFAULT_MULTIPART_CHUNK_SIZE
     for file in [S3_CONF_FILE, CONFIG_PATH]:
         if os.path.exists(file):
             s3conf = load_yaml(file)
@@ -89,7 +107,9 @@ def get_credentials(**kwargs) -> dict:
                     s3conf[key] = endpoint if endpoint else s3conf.get(key)
                 else:
                     s3conf[key] = value
+            MULTIPART_CHUNK_SIZES[s3conf.get('endpoint_url', endpoint)] = multipart_chunk_size
             return s3conf
+    MULTIPART_CHUNK_SIZES[endpoint] = multipart_chunk_size
     return {'aws_access_key_id': access_key, 'aws_secret_access_key': secret_key, 'endpoint_url': endpoint}
 
 
@@ -252,13 +272,14 @@ def _load_sync_status(
     return {key: value for key, value in status.items() if not files or key in files}
 
 
-def remove_sync_status(endpoint: str, bucket: str, folder: str) -> None:
+def remove_sync_status(endpoint: Union[str, BaseClient], bucket: str, folder: str) -> None:
     """ Remove a synchronization status file
 
     :param endpoint: The S3 endpoint
     :param bucket: The bucket name
     :param folder: The folder to synchronize with
     """
+    endpoint = endpoint.meta.endpoint_url if isinstance(endpoint, BaseClient) else endpoint
     if folder and os.path.exists(status_file(endpoint, bucket, folder, Location.BUCKET)):
         os.remove(status_file(endpoint, bucket, folder, Location.BUCKET))
     if folder and os.path.exists(status_file(endpoint, bucket, folder, Location.LOCAL)):
@@ -404,8 +425,9 @@ def _download_file(
 
     :return: A tuple with the bucket key timestamp and hash and the local file timestamp and hash
     """
+    chunk_size = multipart_chunk_size(client)
     bucket_last_modified, bucket_etag = download_file(client, bucket, key, folder)
-    local_last_modified, local_etag = bucket_last_modified, file_etag(key_to_path(folder, key))
+    local_last_modified, local_etag = bucket_last_modified, file_etag(key_to_path(folder, key), chunk_size)
     if bucket_etag != local_etag:
         raise TagsNotMatchError(f'The local tag {local_etag} differs to bucket one {bucket_etag}.')
     bucket_files[key], local_files[key] = (bucket_last_modified, bucket_etag), (bucket_last_modified, bucket_etag)
@@ -649,10 +671,11 @@ def check_local_changes(
 
     :return: A tuple with the bucket differences and the bucket files
     """
+    chunk_size = multipart_chunk_size(client.meta.endpoint_url)
     # Load the bucket cache
     cached_local_files = _load_sync_status(client.meta.endpoint_url, bucket, folder, Location.LOCAL, files)
     # List objects in the S3 bucket
-    local_files = get_folder_files(folder, files)
+    local_files = get_folder_files(folder, files, chunk_size)
     # Find the differences with respect to the cached
     local_diff = _diff_files(local_files, cached_local_files)
     return local_diff, local_files
@@ -739,7 +762,9 @@ def exists(client: BaseClient, bucket: str, *keys: str) -> bool:
     :return: True if that bucket and key exist if a key is given, if not, True if that bucket exists, otherwise False
     """
     try:
-        # Send a request to check the bucket
+        if not keys:
+            client.head_bucket(Bucket=bucket)
+        # Send a request to check the bucket for each key
         for key in keys:
             client.head_bucket(Bucket=bucket)
             if key:

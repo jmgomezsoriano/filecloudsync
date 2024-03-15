@@ -328,29 +328,51 @@ class MyTestCase(FileTestCase):
         print('Finished')
 
     def test_readonly(self):
-        tmp_file = mktemp()
         try:
             logger.info(f'Creating a readonly bucket {TEST_BUCKET} and syncrhonize it...')
             # Create an initial synchronization to start to work with
-            create_files()
             client = s3.connect()
             client.create_bucket(ACL='private', Bucket=TEST_BUCKET)
-            s3.sync(client, TEST_BUCKET, TEST_FOLDER)
-            # Check if the files exist after the synchronization
-            self.assertTrue(s3.exists(client, TEST_BUCKET, 'test.txt', 'config.yml', 'config2.yml', 'data/data.json'))
-            # Check if exists() function works properly
-            self.assertFalse(s3.exists(client, TEST_BUCKET, 'test.txt', 'config.yml', 'config2.yml', 'data.json'))
-            # Make modifications in the s3 bucket
-            s3.write_yaml({'test': 'Hello World'}, client, TEST_BUCKET, 'test.yml')  # Create file
-            s3.write_yaml({'model': 'MyNewModel'}, client, TEST_BUCKET, 'config.yml')  # Modify file
-            client.delete_object(Bucket=TEST_BUCKET, Key='test.txt')
-            # Checking the readonly synchronization when the bucket is modified
+            s3.write_yaml({'model': 'BERT', 'threshold': 0.8}, client, TEST_BUCKET, 'config.yml')
+            s3.write_json({'data': [1, 2, 3, 4, 5]}, client, TEST_BUCKET, 'data.json')
             s3.sync(client, TEST_BUCKET, TEST_FOLDER, readonly=True)
-            # Check the created file
-            self.assertDictEqual({'test': 'Hello World'}, load_yaml(join(TEST_FOLDER, 'test.yml')))
-            # Check the modified file
-            self.assertDictEqual({'model': 'MyNewModel'}, load_yaml(join(TEST_FOLDER, 'config.yml')))
-            self.assertNotExists(join(TEST_FOLDER, 'test.txt'))  # Check deleted file
+            self.assertDictEqual({'model': 'BERT', 'threshold': 0.8}, load_yaml(join(TEST_FOLDER, 'config.yml')))
+            self.assertDictEqual({'data': [1, 2, 3, 4, 5]}, load_json(join(TEST_FOLDER, 'data.json')))
+            # Removing a local file
+            os.remove(join(TEST_FOLDER, 'config.yml'))
+            s3.sync(client, TEST_BUCKET, TEST_FOLDER, readonly=True)
+            self.assertTrue(s3.exists(client, TEST_BUCKET, 'config.yml'))
+            self.assertNotExists(join(TEST_FOLDER, 'config.yml'))
+            # Creating a local file
+            save_yaml({'model': 'ROBERTA'}, join(TEST_FOLDER, 'config2.yml'))
+            s3.sync(client, TEST_BUCKET, TEST_FOLDER, readonly=True)
+            self.assertFalse(s3.exists(client, TEST_BUCKET, 'config2.yml'))
+            # Modifying a local file
+            save_yaml({'model': 'LLaMA'}, join(TEST_FOLDER, 'config.yml'))
+            s3.sync(client, TEST_BUCKET, TEST_FOLDER, readonly=True)
+            self.assertDictEqual({'model': 'BERT', 'threshold': 0.8},
+                                 s3.read_yaml(client, TEST_BUCKET, 'config.yml'))
+
+            # # Create an initial synchronization to start to work with
+            # create_files()
+            # client = s3.connect()
+            # client.create_bucket(ACL='private', Bucket=TEST_BUCKET)
+            # s3.sync(client, TEST_BUCKET, TEST_FOLDER)
+            # # Check if the files exist after the synchronization
+            # self.assertTrue(s3.exists(client, TEST_BUCKET, 'test.txt', 'config.yml', 'config2.yml', 'data/data.json'))
+            # # Check if exists() function works properly
+            # self.assertFalse(s3.exists(client, TEST_BUCKET, 'test.txt', 'config.yml', 'config2.yml', 'data.json'))
+            # # Make modifications in the s3 bucket
+            # s3.write_yaml({'test': 'Hello World'}, client, TEST_BUCKET, 'test.yml')  # Create file
+            # s3.write_yaml({'model': 'MyNewModel'}, client, TEST_BUCKET, 'config.yml')  # Modify file
+            # client.delete_object(Bucket=TEST_BUCKET, Key='test.txt')
+            # # Checking the readonly synchronization when the bucket is modified
+            # s3.sync(client, TEST_BUCKET, TEST_FOLDER, readonly=True)
+            # # Check the created file
+            # self.assertDictEqual({'test': 'Hello World'}, load_yaml(join(TEST_FOLDER, 'test.yml')))
+            # # Check the modified file
+            # self.assertDictEqual({'model': 'MyNewModel'}, load_yaml(join(TEST_FOLDER, 'config.yml')))
+            # self.assertNotExists(join(TEST_FOLDER, 'test.txt'))  # Check deleted file
             # TODO: finish the unit tests with readonly buckets
             # TODO: if a local file is modified, it must be restored from the bucket copy in readonly mode
             # TODO: if a local file is deleted, it must be restored from the bucket copy in readonly mode
@@ -426,11 +448,7 @@ class MyTestCase(FileTestCase):
             #     print('Waiting some seconds...')
             #     time.sleep(5)
         finally:
-            if exists(f'{tmp_file}.finish'):
-                self.assertListEqual(read_file(f'{tmp_file}.finish'), ['The last changes: []'])
-                clean_test_files(TEST_BUCKET, TEST_FOLDER, f'{tmp_file}.finish', tmp_file)
-            else:
-                clean_test_files(TEST_BUCKET, TEST_FOLDER, tmp_file)
+            clean_test_files(TEST_BUCKET, TEST_FOLDER)
 
     def test_sync_partial_files(self):
         """ Test if the bucket synchronizes with an empty local folder """
@@ -523,6 +541,9 @@ class MyTestCase(FileTestCase):
                 self.assertNotExists(TEST_FOLDER)
             finally:
                 clean_test_files(TEST_BUCKET, TEST_FOLDER)
+
+    # TODO: Check synchronizing buckets because it does not work very well
+    # TODO: Check synchronizing big files with several parts
 
 
 if __name__ == '__main__':
